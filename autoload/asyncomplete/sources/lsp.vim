@@ -107,16 +107,70 @@ function! asyncomplete#sources#lsp#callback(results, context) abort
   let l:keyword = matchstr(a:context.typed, '\w\+$')
   let l:startcol = a:context.col - len(l:keyword)
 
-  let l:items = []
-  for l:item in a:results['items']
-    let l:kind = asyncomplete#sources#lsp#GetCompletionSymbol(get(l:item, 'kind', ''))
-    let l:word = get(l:item, 'insertText', '')
-    let l:menu = get(l:item, 'detail', '')
-    let l:info = get(l:item, 'detail', '')
-    let l:fixedItem = {'word': l:word, 'kind': l:kind, 'info': l:info, 'menu': l:menu}
+  let l:itemResults = []
 
-    let l:items += [l:fixedItem]
+  if type(a:results) == type([])
+    let l:itemResults = a:results
+  else
+    let l:itemResults = get(a:results, 'items', [])
+
+    if type(l:itemResults) == type({})
+      let l:itemResults = [l:itemResults]
+    endif
+  endif
+
+  let l:items = []
+  for l:item in l:itemResults
+    let l:items += [s:convertItem(l:item)]
   endfor
 
   call asyncomplete#complete('lsp', a:context, l:startcol, l:items)
+endfunction
+
+
+" Credits to https://github.com/prabirshrestha/vim-lsp/blob/b9e68161933e398465c3c3d77ad21ea2596c499b/autoload/lsp/omni.vim#L237
+function! s:convertItem(item) abort
+    if has_key(a:item, 'insertText') && !empty(a:item['insertText'])
+        if has_key(a:item, 'insertTextFormat') && a:item['insertTextFormat'] != 1
+            let l:word = a:item['label']
+        else
+            let l:word = a:item['insertText']
+        endif
+        let l:abbr = a:item['label']
+    else
+        let l:word = a:item['label']
+        let l:abbr = a:item['label']
+    endif
+
+    if has_key(a:item, 'insertTextFormat') && a:item['insertTextFormat'] == 2
+        let l:word = substitute(l:word, '\<\$[0-9]\+\|\${[^}]\+}\>', '', 'g')
+    endif
+
+    let l:completion = {
+                \ 'word': l:word,
+                \ 'abbr': l:abbr,
+                \ 'menu': '',
+                \ 'info': '',
+                \ 'icase': 1,
+                \ 'dup': 1,
+                \ 'empty': 1,
+                \ 'kind': asyncomplete#sources#lsp#GetCompletionSymbol(get(a:item, 'kind', ''))
+                \ }
+
+
+    if has_key(a:item, 'detail') && !empty(a:item['detail'])
+        let l:completion['menu'] = substitute(a:item['detail'], '[ \t\n\r]\+', ' ', 'g')
+    endif
+
+    if has_key(a:item, 'documentation')
+        if type(a:item['documentation']) == type('') " field is string
+            let l:completion['info'] .= a:item['documentation']
+        elseif type(a:item['documentation']) == type({}) &&
+                    \ has_key(a:item['documentation'], 'value')
+            " field is MarkupContent (hopefully 'plaintext')
+            let l:completion['info'] .= a:item['documentation']['value']
+        endif
+    endif
+
+    return l:completion
 endfunction
